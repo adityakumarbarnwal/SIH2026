@@ -126,8 +126,14 @@ export async function getTimeline(patientId, ctx) {
 
     const staff = actor.role !== 'patient';
 
+    const hrQuery = { patientId };
+    if (actor.role !== 'doctor') {
+        hrQuery.isAiGenerated = { $ne: true };
+        hrQuery.type = { $ne: 'ai_generated_keywords' };
+    }
+
     const [encounters, appointments, referrals, plans, tasks] = await Promise.all([
-        HealthRecord.find({ patientId })
+        HealthRecord.find(hrQuery)
             .populate('authorId', 'name role workerType specialization')
             .populate('facilityId', 'name level')
             .populate({ path: 'appointmentId', populate: { path: 'doctorId', select: 'name specialization' } })

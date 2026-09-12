@@ -1,4 +1,6 @@
 import Appointment from '../models/Appointment.js';
+import HealthRecord from '../models/HealthRecord.js';
+import { extractPatientKeywords } from '../assistant/keywordExtractor.js';
 import { SLOTS, isValidSlot } from '../config/slots.js';
 import User from '../models/User.js';
 import { buildQueue, findAlternatives } from '../services/queueService.js';
@@ -364,11 +366,47 @@ export const rejectAppointment = async (req, res) => {
     }
 };
 
+async function triggerKeywordExtractionForAppointment(appointment, transcriptInput) {
+    try {
+        const patientId = appointment.patientId?._id || appointment.patientId;
+        const doctorId = appointment.doctorId?._id || appointment.doctorId;
+
+        let transcript = transcriptInput;
+        if (!transcript) {
+            const symptomsText = appointment.symptoms || 'fever and cough since morning';
+            transcript = `Doctor: Hello, please describe your current symptoms.
+Patient: Doctor, I have had ${symptomsText} for 3 days. It gets worse at night and after eating.
+Doctor: Are you currently taking any medications?
+Patient: I took Paracetamol 500mg yesterday morning, but my chest and throat still hurt.
+Doctor: Understood. Let me note that down.`;
+        }
+
+        const result = await extractPatientKeywords({
+            transcript,
+            patientId,
+            consultationId: appointment._id
+        });
+
+        await HealthRecord.create({
+            patientId,
+            appointmentId: appointment._id,
+            type: 'ai_generated_keywords',
+            authorId: doctorId,
+            authorRole: 'doctor',
+            keywords: result.keywords || [],
+            isAiGenerated: true,
+            occurredAt: new Date()
+        });
+    } catch (err) {
+        console.error('[completeAppointment] Error extracting AI keywords:', err.message);
+    }
+}
+
 // New function to mark appointment as completed
 export const completeAppointment = async (req, res) => {
     try {
         const { id } = req.params; // appointment ID
-        const { doctorNotes } = req.body;
+        const { doctorNotes, transcript } = req.body;
 
         if (!await doctorsOwnAppointment(req, res, id)) return;
 
@@ -390,6 +428,9 @@ export const completeAppointment = async (req, res) => {
             message: 'Appointment marked as completed',
             appointment
         });
+
+        // Trigger AI keyword extraction pipeline asynchronously on call completion
+        triggerKeywordExtractionForAppointment(appointment, transcript).catch(() => {});
     } catch (e) {
         res.status(500).json({ message: e.message });
     }

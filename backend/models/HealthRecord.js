@@ -35,7 +35,7 @@ const healthRecordSchema = new mongoose.Schema({
     /** Where and how this contact happened. */
     type: {
         type: String,
-        enum: ['home_visit', 'sub_centre', 'phc_opd', 'teleconsult', 'hospital', 'follow_up', 'lab_result'],
+        enum: ['home_visit', 'sub_centre', 'phc_opd', 'teleconsult', 'hospital', 'follow_up', 'lab_result', 'ai_generated_keywords'],
         default: 'teleconsult'
     },
     facilityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hospital' },
@@ -46,7 +46,7 @@ const healthRecordSchema = new mongoose.Schema({
     diagnosticRequestId: { type: mongoose.Schema.Types.ObjectId, ref: 'DiagnosticRequest', default: null },
     /** Who recorded it. A record with no attributable author is not a record. */
     authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    authorRole: { type: String, enum: ['doctor', 'health_worker', 'hospital'] },
+    authorRole: { type: String, enum: ['doctor', 'health_worker', 'hospital', 'system'] },
 
     vitals: { type: vitalsSchema, default: undefined },
     /**
@@ -60,6 +60,10 @@ const healthRecordSchema = new mongoose.Schema({
     diagnosis: { type: String },
     prescription: { type: String },
     notes: { type: String },
+
+    /** AI-extracted keywords from completed patient consultation */
+    keywords: [{ type: String }],
+    isAiGenerated: { type: Boolean, default: false },
 
     /**
      * When the contact actually happened, which is not when the server heard

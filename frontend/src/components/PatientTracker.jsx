@@ -182,19 +182,66 @@ export default function PatientTracker() {
                   <p className="text-small text-muted">{t('records.empty')}</p>
                 ) : (
                   <ul className="flex flex-col gap-3">
-                    {records.map(record => (
-                      <li key={record._id} className="border border-line rounded-card p-4">
-                        <p className="text-caption text-muted mb-2">{formatDate(record.createdAt, i18n.language)}</p>
-                        <p className="text-small font-medium text-ink mb-1">{t('records.diagnosis')}</p>
-                        <p className="text-small text-body mb-3 whitespace-pre-line">{record.diagnosis}</p>
-                        {record.prescription && (
-                          <>
-                            <p className="text-small font-medium text-ink mb-1">{t('records.prescription')}</p>
-                            <p className="text-small text-body whitespace-pre-line">{record.prescription}</p>
-                          </>
-                        )}
-                      </li>
-                    ))}
+                    {records.map(record => {
+                      const isAi = record.type === 'ai_generated_keywords' || record.isAiGenerated
+                      if (isAi) {
+                        return (
+                          <li key={record._id} className="border border-indigo-200 bg-indigo-50/20 rounded-card p-4">
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <p className="text-caption text-muted">{formatDate(record.createdAt, i18n.language)}</p>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-caption font-semibold bg-indigo-100 text-indigo-700">
+                                <svg className="w-3 h-3 fill-current" viewBox="0 0 20 20">
+                                  <path d="M10 2a1 1 0 011 1v2.1l1.5-1.5a1 1 0 111.4 1.4L12.4 6.5H14.5a1 1 0 110 2h-2.1l1.5 1.5a1 1 0 01-1.4 1.4L11 9.9V12a1 1 0 11-2 0V9.9L7.5 11.4a1 1 0 01-1.4-1.4L7.6 8.5H5.5a1 1 0 110-2h2.1L6.1 5a1 1 0 011.4-1.4L9 5.1V3a1 1 0 011-1z" />
+                                </svg>
+                                AI-generated
+                              </span>
+                            </div>
+                            <p className="text-small font-medium text-ink mb-1.5">Keywords</p>
+                            {record.keywords && record.keywords.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5 mb-3">
+                                {record.keywords.map((kw, idx) => (
+                                  <span key={idx} className="px-2.5 py-1 text-caption font-medium bg-white text-ink-heading border border-indigo-200 rounded-md shadow-xs">
+                                    {kw}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-small text-muted mb-3">No explicit patient keywords extracted.</p>
+                            )}
+                            <div className="pt-2 border-t border-indigo-100 flex justify-end">
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => {
+                                  setDraft({
+                                    appointmentId: record.appointmentId?._id || patientAppointments[0]?._id || '',
+                                    diagnosis: record.keywords?.length ? `Extracted symptoms: ${record.keywords.join(', ')}` : '',
+                                    prescription: ''
+                                  })
+                                  setWriteOpen(true)
+                                }}
+                              >
+                                {t('records.addTitle')}
+                              </Button>
+                            </div>
+                          </li>
+                        )
+                      }
+
+                      return (
+                        <li key={record._id} className="border border-line rounded-card p-4">
+                          <p className="text-caption text-muted mb-2">{formatDate(record.createdAt, i18n.language)}</p>
+                          <p className="text-small font-medium text-ink mb-1">{t('records.diagnosis')}</p>
+                          <p className="text-small text-body mb-3 whitespace-pre-line">{record.diagnosis}</p>
+                          {record.prescription && (
+                            <>
+                              <p className="text-small font-medium text-ink mb-1">{t('records.prescription')}</p>
+                              <p className="text-small text-body whitespace-pre-line">{record.prescription}</p>
+                            </>
+                          )}
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
               </CardBody>

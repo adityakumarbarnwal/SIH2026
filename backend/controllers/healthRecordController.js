@@ -57,7 +57,12 @@ export const getRecordsForPatient = async (req, res) => {
         if (!await mayAccessPatient(req.user, patientId)) {
             return res.status(403).json({ message: 'You do not have access to these records' });
         }
-        const records = await HealthRecord.find({ patientId })
+        const query = { patientId };
+        if (req.user?.role !== 'doctor') {
+            query.isAiGenerated = { $ne: true };
+            query.type = { $ne: 'ai_generated_keywords' };
+        }
+        const records = await HealthRecord.find(query)
             .populate('appointmentId')
             .populate({
                 path: 'appointmentId',
@@ -83,7 +88,12 @@ export const downloadPatientHistoryPdf = async (req, res) => {
         }
         const patient = await User.findById(patientId);
         if (!patient) return res.status(404).json({ message: 'Patient not found' });
-        const records = await HealthRecord.find({ patientId })
+        const pdfQuery = { patientId };
+        if (req.user?.role !== 'doctor') {
+            pdfQuery.isAiGenerated = { $ne: true };
+            pdfQuery.type = { $ne: 'ai_generated_keywords' };
+        }
+        const records = await HealthRecord.find(pdfQuery)
             .populate('appointmentId')
             .populate({
                 path: 'appointmentId',
@@ -128,6 +138,9 @@ export const downloadIndividualRecordPdf = async (req, res) => {
             
         if (!record || record.patientId.toString() !== patientId) {
             return res.status(404).json({ message: 'Health record not found' });
+        }
+        if (req.user?.role !== 'doctor' && (record.isAiGenerated || record.type === 'ai_generated_keywords')) {
+            return res.status(403).json({ message: 'You do not have access to this AI record' });
         }
 
         res.setHeader('Content-Type', 'application/pdf');
