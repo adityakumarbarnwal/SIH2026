@@ -14,12 +14,27 @@ import Alert from './ui/Alert'
  * import time, so loading any page that touched this module no longer
  * opened a connection.
  */
-function createSocket() {
-  return io(import.meta.env.VITE_SIGNAL_URL || 'http://localhost:5000')
+/**
+ * Helper for safe STT language mapping (defaults safely to 'en-IN', never throws)
+ */
+function getSafeSttLanguage(langHint) {
+  try {
+    const map = {
+      en: 'en-IN',
+      hi: 'hi-IN',
+      pa: 'pa-IN',
+      mr: 'mr-IN',
+      bn: 'bn-IN'
+    }
+    const key = String(langHint || '').toLowerCase().trim().split('-')[0]
+    return map[key] || 'en-IN'
+  } catch {
+    return 'en-IN'
+  }
 }
 
 export default function VideoCall({ roomId, perspective = 'patient', onLeave }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { userId } = useAuth()
   const myVideo = useRef(null)
   const remoteVideo = useRef(null)
@@ -156,54 +171,81 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
     return () => { disposed = true; cleanup() }
   }, [roomId, t, cleanup, onLeave])
 
-  // Real-time client-side Web Speech Recognition on patient's browser
+  // Real-time client-side Web Speech Recognition on patient's browser (Strictly Decoupled & Isolated)
   useEffect(() => {
-    if (!connected || perspective !== 'patient' || !roomId) return
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) return
+    // 1. Guard & safety checks: STT runs only when media stream exists & patient is in a room
+    if (!connected || perspective !== 'patient' || !roomId || !streamRef.current) return
+
+    const SpeechRecognition = typeof window !== 'undefined'
+      ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+      : null
+
+    if (!SpeechRecognition) {
+      console.warn('[STT] SpeechRecognition API is not supported in this browser. Skipping live keywords.')
+      return
+    }
 
     let active = true
-    try {
-      const recognition = new SpeechRecognition()
-      recognitionRef.current = recognition
-      recognition.continuous = true
-      recognition.interimResults = false
-      recognition.lang = 'en-IN'
+    let instance = null
+    let timerId = null
 
-      recognition.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          if (event.results[i].isFinal) {
-            const text = event.results[i][0].transcript?.trim()
-            if (text && socketRef.current) {
-              socketRef.current.emit('transcript-chunk', { roomId, text })
+    // 2. Delayed initialization (1.5s after WebRTC connection) to allow media devices to settle
+    timerId = setTimeout(() => {
+      if (!active || !socketRef.current) return
+
+      try {
+        const recognition = new SpeechRecognition()
+        instance = recognition
+        recognitionRef.current = recognition
+
+        recognition.continuous = true
+        recognition.interimResults = false
+        recognition.lang = getSafeSttLanguage(i18n?.language)
+
+        recognition.onresult = (event) => {
+          try {
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              if (event.results[i]?.isFinal) {
+                const text = event.results[i][0]?.transcript?.trim()
+                if (text && socketRef.current) {
+                  socketRef.current.emit('transcript-chunk', { roomId, text })
+                }
+              }
             }
+          } catch (e) {
+            console.warn('[STT] Non-fatal error handling STT result:', e)
           }
         }
-      }
 
-      recognition.onerror = (e) => {
-        if (e.error !== 'no-speech') {
-          console.warn('[STT] Speech recognition warning:', e.error)
+        recognition.onerror = (e) => {
+          // Never throw or affect call error state
+          if (e.error !== 'no-speech') {
+            console.warn('[STT] Speech recognition warning:', e.error)
+          }
         }
-      }
 
-      recognition.onend = () => {
-        if (active && socketRef.current && connected) {
-          try { recognition.start() } catch { /* ignore */ }
+        recognition.onend = () => {
+          if (active && socketRef.current && connected) {
+            try { recognition.start() } catch { /* ignore restart error */ }
+          }
         }
-      }
 
-      recognition.start()
-    } catch (err) {
-      console.warn('[STT] Could not start speech recognition:', err.message)
-    }
+        recognition.start()
+      } catch (err) {
+        // Complete isolation: Log warning only, NEVER call setError
+        console.warn('[STT] Speech recognition could not start (non-fatal):', err?.message)
+      }
+    }, 1500)
 
     return () => {
       active = false
-      try { recognitionRef.current?.stop?.() } catch { /* ignore */ }
-      recognitionRef.current = null
+      if (timerId) clearTimeout(timerId)
+      try { instance?.stop?.() } catch { /* ignore */ }
+      if (recognitionRef.current === instance) {
+        recognitionRef.current = null
+      }
     }
-  }, [connected, perspective, roomId])
+  }, [connected, perspective, roomId, i18n?.language])
 
   const toggleAudio = () => {
     const tracks = streamRef.current?.getAudioTracks() || []
