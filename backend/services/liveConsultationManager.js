@@ -38,13 +38,12 @@ export async function appendTranscriptChunk(roomId, text, io) {
 
     const session = getSession(roomId);
     session.transcriptText += ` ${text.trim()}`;
-    console.log(`[liveConsultationManager Debug] Room ${roomId} transcript buffer length: ${session.transcriptText.length} chars. Total text: "${session.transcriptText}"`);
 
-    // Periodically extract keywords (every 10-15 seconds or when new content arrives)
+    // Periodically extract keywords (every 15 seconds or when new content arrives)
     const now = Date.now();
     const timeSinceLast = now - session.lastExtractedAt;
 
-    if ((timeSinceLast >= 10000 || session.lastExtractedAt === 0) && !session.processing) {
+    if (timeSinceLast >= 15000 && !session.processing) {
         runPeriodicExtraction(session, io);
     } else if (!session.debounceTimer) {
         session.debounceTimer = setTimeout(() => {
@@ -52,7 +51,7 @@ export async function appendTranscriptChunk(roomId, text, io) {
             if (!session.processing) {
                 runPeriodicExtraction(session, io);
             }
-        }, 8000);
+        }, 12000);
     }
 }
 
@@ -64,11 +63,8 @@ async function runPeriodicExtraction(session, io) {
     session.processing = true;
     session.lastExtractedAt = Date.now();
 
-    console.log(`[liveConsultationManager Debug] Calling Gemini for room ${session.roomId}. Buffer content: "${session.transcriptText}"`);
-
     try {
         const { keywords } = await extractPatientKeywords({ transcript: session.transcriptText });
-        console.log(`[liveConsultationManager Debug] Gemini returned keywords for room ${session.roomId}:`, keywords);
         if (Array.isArray(keywords) && keywords.length > 0) {
             // Merge & de-duplicate keywords maintaining order
             const currentSet = new Set(session.keywords);
@@ -79,7 +75,6 @@ async function runPeriodicExtraction(session, io) {
                 }
             }
 
-            console.log(`[liveConsultationManager Debug] Broadcasting updated keywords to room ${session.roomId}:`, session.keywords);
             // Emit live keyword update to all clients in the room (e.g. Doctor's UI)
             if (io) {
                 io.to(session.roomId).emit('keywords-updated', { keywords: session.keywords });

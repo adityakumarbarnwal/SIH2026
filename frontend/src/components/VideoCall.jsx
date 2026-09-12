@@ -137,7 +137,6 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
         })
 
         socket.on('keywords-updated', ({ keywords }) => {
-          console.log('[Doctor UI Debug] Received keywords-updated event:', keywords)
           if (Array.isArray(keywords)) {
             setLiveKeywords(keywords)
           }
@@ -159,82 +158,52 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
 
   // Real-time client-side Web Speech Recognition on patient's browser
   useEffect(() => {
-    console.log('[VideoCall Debug] Perspective check:', { perspective, roomId })
-    if (perspective !== 'patient' || !roomId) return
-
+    if (!connected || perspective !== 'patient' || !roomId) return
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      console.warn('[STT Debug] Web Speech API (SpeechRecognition) is not supported in this browser.')
-      return
-    }
-
-    const LANG_MAP = { en: 'en-IN', hi: 'hi-IN', pa: 'pa-IN', mr: 'mr-IN', bn: 'bn-IN' }
-    const sttLang = LANG_MAP[i18n.language] || 'en-IN'
-
-    console.log('[STT Debug] Initializing SpeechRecognition for patient.', { roomId, sttLang })
+    if (!SpeechRecognition) return
 
     let active = true
-    let recognition = null
-
     try {
-      recognition = new SpeechRecognition()
+      const recognition = new SpeechRecognition()
       recognitionRef.current = recognition
       recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = sttLang
-
-      recognition.onstart = () => {
-        console.log('[STT Debug] SpeechRecognition started & listening for speech...')
-      }
+      recognition.interimResults = false
+      recognition.lang = 'en-IN'
 
       recognition.onresult = (event) => {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           if (event.results[i].isFinal) {
             const text = event.results[i][0].transcript?.trim()
-            if (text) {
-              console.log('[STT Client Emit] Captured final speech chunk:', text, 'Emitting to room:', roomId)
-              if (socketRef.current) {
-                socketRef.current.emit('transcript-chunk', { roomId, text })
-              } else {
-                console.warn('[STT Client Emit Warning] socketRef.current is null when emitting chunk!')
-              }
+            if (text && socketRef.current) {
+              socketRef.current.emit('transcript-chunk', { roomId, text })
             }
           }
         }
       }
 
       recognition.onerror = (e) => {
-        console.warn('[STT Error]', e.error, e.message)
+        if (e.error !== 'no-speech') {
+          console.warn('[STT] Speech recognition warning:', e.error)
+        }
       }
 
       recognition.onend = () => {
-        console.log('[STT Debug] SpeechRecognition ended.')
-        if (active) {
-          console.log('[STT Debug] Auto-restarting SpeechRecognition...')
-          try {
-            recognition.start()
-          } catch (err) {
-            setTimeout(() => {
-              if (active) {
-                try { recognition.start() } catch { /* ignore */ }
-              }
-            }, 800)
-          }
+        if (active && socketRef.current && connected) {
+          try { recognition.start() } catch { /* ignore */ }
         }
       }
 
       recognition.start()
     } catch (err) {
-      console.error('[STT Init Error] Could not start speech recognition:', err)
+      console.warn('[STT] Could not start speech recognition:', err.message)
     }
 
     return () => {
       active = false
-      console.log('[STT Debug] Cleaning up SpeechRecognition on unmount.')
       try { recognitionRef.current?.stop?.() } catch { /* ignore */ }
       recognitionRef.current = null
     }
-  }, [perspective, roomId, i18n.language])
+  }, [connected, perspective, roomId])
 
   const toggleAudio = () => {
     const tracks = streamRef.current?.getAudioTracks() || []
