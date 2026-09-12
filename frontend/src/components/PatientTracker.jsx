@@ -189,11 +189,10 @@ export default function PatientTracker() {
                           <li key={record._id} className="border border-indigo-200 bg-indigo-50/20 rounded-card p-4">
                             <div className="flex items-center justify-between gap-2 mb-2">
                               <p className="text-caption text-muted">{formatDate(record.createdAt, i18n.language)}</p>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-caption font-semibold bg-indigo-100 text-indigo-700">
-                                <svg className="w-3 h-3 fill-current" viewBox="0 0 20 20">
+                              <span className="inline-flex items-center gap-1 p-1 rounded-full text-caption font-semibold bg-indigo-100 text-indigo-700" title="Keywords record">
+                                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
                                   <path d="M10 2a1 1 0 011 1v2.1l1.5-1.5a1 1 0 111.4 1.4L12.4 6.5H14.5a1 1 0 110 2h-2.1l1.5 1.5a1 1 0 01-1.4 1.4L11 9.9V12a1 1 0 11-2 0V9.9L7.5 11.4a1 1 0 01-1.4-1.4L7.6 8.5H5.5a1 1 0 110-2h2.1L6.1 5a1 1 0 011.4-1.4L9 5.1V3a1 1 0 011-1z" />
                                 </svg>
-                                AI-generated
                               </span>
                             </div>
                             <p className="text-small font-medium text-ink mb-1.5">Keywords</p>

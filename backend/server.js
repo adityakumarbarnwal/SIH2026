@@ -124,6 +124,7 @@ io.on('connection', (socket) => {
 
     // Real-time patient speech transcript stream (Client-side Web Speech STT)
     socket.on('transcript-chunk', ({ roomId, text }) => {
+        console.log(`[Socket Server Debug] Received transcript-chunk for room: ${roomId}, text: "${text}"`);
         appendTranscriptChunk(roomId, text, io);
     });
 
