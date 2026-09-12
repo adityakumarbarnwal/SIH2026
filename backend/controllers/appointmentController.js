@@ -1,6 +1,7 @@
 import Appointment from '../models/Appointment.js';
 import HealthRecord from '../models/HealthRecord.js';
 import { extractPatientKeywords } from '../assistant/keywordExtractor.js';
+import { finalizeConsultation } from '../services/liveConsultationManager.js';
 import { SLOTS, isValidSlot } from '../config/slots.js';
 import User from '../models/User.js';
 import { buildQueue, findAlternatives } from '../services/queueService.js';
@@ -429,8 +430,10 @@ export const completeAppointment = async (req, res) => {
             appointment
         });
 
-        // Trigger AI keyword extraction pipeline asynchronously on call completion
-        triggerKeywordExtractionForAppointment(appointment, transcript).catch(() => {});
+        // Finalize live consultation keywords & purge raw memory buffer
+        finalizeConsultation(id, appointment).catch(err => {
+            console.error('[completeAppointment] Error finalizing live consultation keywords:', err.message);
+        });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }

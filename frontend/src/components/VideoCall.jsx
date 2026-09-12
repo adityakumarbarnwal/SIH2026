@@ -26,12 +26,14 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
   const socketRef = useRef(null)
   const peerRef = useRef(null)
   const streamRef = useRef(null)
+  const recognitionRef = useRef(null)
 
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState('')
   const [audioOn, setAudioOn] = useState(true)
   const [videoOn, setVideoOn] = useState(true)
   const [counterpart, setCounterpart] = useState(null)
+  const [liveKeywords, setLiveKeywords] = useState([])
 
   const counterpartLabel = counterpart?.name
     || (perspective === 'patient' ? t('consultation.otherPerson') : t('consultation.otherPersonPatient'))
@@ -57,6 +59,8 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
   }, [roomId, perspective, userId])
 
   const cleanup = useCallback(() => {
+    try { recognitionRef.current?.stop?.() } catch { /* already stopped */ }
+    recognitionRef.current = null
     try { peerRef.current?.destroy?.() } catch { /* already gone */ }
     peerRef.current = null
     streamRef.current?.getTracks().forEach(track => track.stop())
@@ -132,6 +136,12 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
           else { try { peerRef.current.signal(data) } catch (err) { console.error('Signal failed:', err) } }
         })
 
+        socket.on('keywords-updated', ({ keywords }) => {
+          if (Array.isArray(keywords)) {
+            setLiveKeywords(keywords)
+          }
+        })
+
         socket.on('call-ended', () => { setConnected(false); cleanup(); window.dispatchEvent(new CustomEvent('appointments:changed')); onLeave?.() })
         socket.on('disconnect', () => setConnected(false))
       } catch (err) {
@@ -145,6 +155,55 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
     start()
     return () => { disposed = true; cleanup() }
   }, [roomId, t, cleanup, onLeave])
+
+  // Real-time client-side Web Speech Recognition on patient's browser
+  useEffect(() => {
+    if (!connected || perspective !== 'patient' || !roomId) return
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) return
+
+    let active = true
+    try {
+      const recognition = new SpeechRecognition()
+      recognitionRef.current = recognition
+      recognition.continuous = true
+      recognition.interimResults = false
+      recognition.lang = 'en-IN'
+
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            const text = event.results[i][0].transcript?.trim()
+            if (text && socketRef.current) {
+              socketRef.current.emit('transcript-chunk', { roomId, text })
+            }
+          }
+        }
+      }
+
+      recognition.onerror = (e) => {
+        if (e.error !== 'no-speech') {
+          console.warn('[STT] Speech recognition warning:', e.error)
+        }
+      }
+
+      recognition.onend = () => {
+        if (active && socketRef.current && connected) {
+          try { recognition.start() } catch { /* ignore */ }
+        }
+      }
+
+      recognition.start()
+    } catch (err) {
+      console.warn('[STT] Could not start speech recognition:', err.message)
+    }
+
+    return () => {
+      active = false
+      try { recognitionRef.current?.stop?.() } catch { /* ignore */ }
+      recognitionRef.current = null
+    }
+  }, [connected, perspective, roomId])
 
   const toggleAudio = () => {
     const tracks = streamRef.current?.getAudioTracks() || []
@@ -260,6 +319,38 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
             {t('consultation.endCall')}
           </Button>
         </div>
+
+        {/* Live Patient Keywords Panel for Doctor (Visible only during doctor consultation) */}
+        {perspective === 'doctor' && (
+          <div className="p-4 bg-indigo-50/40 border-t border-indigo-100 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
+                </span>
+                <h4 className="text-small font-semibold text-ink flex items-center gap-1.5">
+                  <svg className="w-4 h-4 text-indigo-600 fill-current" viewBox="0 0 20 20">
+                    <path d="M10 2a1 1 0 011 1v2.1l1.5-1.5a1 1 0 111.4 1.4L12.4 6.5H14.5a1 1 0 110 2h-2.1l1.5 1.5a1 1 0 01-1.4 1.4L11 9.9V12a1 1 0 11-2 0V9.9L7.5 11.4a1 1 0 01-1.4-1.4L7.6 8.5H5.5a1 1 0 110-2h2.1L6.1 5a1 1 0 011.4-1.4L9 5.1V3a1 1 0 011-1z" />
+                  </svg>
+                  Live Patient Keywords
+                </h4>
+              </div>
+              <span className="text-caption text-muted">Updating live...</span>
+            </div>
+            {liveKeywords.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1">
+                {liveKeywords.map((kw, idx) => (
+                  <span key={idx} className="px-2.5 py-1 text-caption font-medium bg-white text-indigo-900 border border-indigo-200 rounded-md shadow-xs transition-all">
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-caption text-muted italic">Listening to patient speech... extracted terms will appear here live.</p>
+            )}
+          </div>
+        )}
       </CardBody>
     </Card>
   )

@@ -23,6 +23,7 @@ import pharmacyRoutes from './routes/pharmacyRoutes.js';
 import recommendationRoutes from './routes/recommendationRoutes.js';
 import referralRoutes from './routes/referralRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
+import { appendTranscriptChunk, finalizeConsultation, getLiveKeywords } from './services/liveConsultationManager.js';
 import symptomCheckerRoutes from './routes/symptomCheckerRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 
@@ -110,10 +111,20 @@ io.on('connection', (socket) => {
     socket.on('join-room', (roomId) => {
         socket.join(roomId);
         socket.to(roomId).emit('user-joined', socket.id);
+        // Send existing live keywords if reconnected mid-call
+        const currentKeywords = getLiveKeywords(roomId);
+        if (currentKeywords.length > 0) {
+            socket.emit('keywords-updated', { keywords: currentKeywords });
+        }
     });
 
     socket.on('signal', ({ roomId, data }) => {
         socket.to(roomId).emit('signal', { from: socket.id, data });
+    });
+
+    // Real-time patient speech transcript stream (Client-side Web Speech STT)
+    socket.on('transcript-chunk', ({ roomId, text }) => {
+        appendTranscriptChunk(roomId, text, io);
     });
 
     // Handle call decline
@@ -121,9 +132,12 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('call-declined');
     });
 
-    // Handle call ending
+    // Handle call ending: broadcast call-ended & finalize/purge in-memory buffer
     socket.on('call-ended', (roomId) => {
         socket.to(roomId).emit('call-ended');
+        finalizeConsultation(roomId).catch(err => {
+            console.error('[server] Error finalizing live consultation:', err.message);
+        });
     });
     
     // Real-time stock updates
