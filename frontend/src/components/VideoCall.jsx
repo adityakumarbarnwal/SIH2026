@@ -14,6 +14,10 @@ import Alert from './ui/Alert'
  * import time, so loading any page that touched this module no longer
  * opened a connection.
  */
+function createSocket() {
+  return io(import.meta.env.VITE_SIGNAL_URL || 'http://localhost:5000')
+}
+
 /**
  * Helper for safe STT language mapping (defaults safely to 'en-IN', never throws)
  */
