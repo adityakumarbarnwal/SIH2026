@@ -8,6 +8,7 @@ import Card, { CardBody } from './ui/Card'
 import Button, { IconButton } from './ui/Button'
 import Avatar from './ui/Avatar'
 import Alert from './ui/Alert'
+import { usePatientKeywordCapture } from '../hooks/usePatientKeywordCapture'
 
 /**
  * The socket is created when a call actually starts rather than at module
@@ -53,6 +54,14 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
   const [videoOn, setVideoOn] = useState(true)
   const [counterpart, setCounterpart] = useState(null)
   const [liveKeywords, setLiveKeywords] = useState([])
+
+  usePatientKeywordCapture({
+    enabled: perspective === 'patient' && connected,
+    roomId,
+    socketRef,
+    streamRef,
+    language: i18n?.language,
+  })
 
   const counterpartLabel = counterpart?.name
     || (perspective === 'patient' ? t('consultation.otherPerson') : t('consultation.otherPersonPatient'))
@@ -156,9 +165,7 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
         })
 
         socket.on('keywords-updated', ({ keywords }) => {
-          if (Array.isArray(keywords)) {
-            setLiveKeywords(keywords)
-          }
+          if (Array.isArray(keywords)) setLiveKeywords(keywords)
         })
 
         socket.on('call-ended', () => { setConnected(false); cleanup(); window.dispatchEvent(new CustomEvent('appointments:changed')); onLeave?.() })
@@ -274,13 +281,6 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
           <Alert tone="error">{error}</Alert>
           <div className="flex flex-col sm:flex-row gap-2">
             <Button onClick={() => window.location.reload()}>{t('common.retry')}</Button>
-            {/**
-              * A consultation that happened has to be closable even when the
-              * video never did. Without this the doctor's only way out of a
-              * failed call is Leave, which ends the screen and leaves the
-              * appointment confirmed forever — so it never reaches the past
-              * list and never leaves the queue.
-              */}
             {perspective === 'doctor' && (
               <Button variant="danger" onClick={endCall}>{t('consultation.endCall')}</Button>
             )}
@@ -294,9 +294,6 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
   return (
     <Card>
       <CardBody className="p-0 sm:p-0">
-        {/* Remote fills the frame; you are a thumbnail. Two equal 300px
-            boxes made the person you're talking to the same size as your
-            own preview on a phone. */}
         <div className="relative bg-ink rounded-t-card overflow-hidden aspect-[4/3] sm:aspect-video">
           <video
             ref={remoteVideo} autoPlay playsInline
@@ -332,6 +329,20 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
             </span>
           )}
         </div>
+
+        {perspective === 'doctor' && liveKeywords.length > 0 && (
+          <div className="p-3 bg-emerald-50 border-t border-emerald-100 flex flex-wrap items-center gap-2">
+            <span className="text-caption font-semibold text-emerald-800 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Live Patient Keywords:
+            </span>
+            {liveKeywords.map((kw, idx) => (
+              <span key={idx} className="badge bg-emerald-100 text-emerald-800 border-emerald-200">
+                {kw}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Labelled controls with real touch targets, replacing 🔊 📹 📞. */}
         <div className="flex items-center justify-center gap-3 p-4">

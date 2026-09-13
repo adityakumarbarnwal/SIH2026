@@ -26,6 +26,7 @@ import taskRoutes from './routes/taskRoutes.js';
 import { appendTranscriptChunk, finalizeConsultation, getLiveKeywords } from './services/liveConsultationManager.js';
 import symptomCheckerRoutes from './routes/symptomCheckerRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import { appendTranscriptChunk } from './services/liveConsultationManager.js';
 
 dotenv.config();
 
@@ -138,6 +139,11 @@ io.on('connection', (socket) => {
         finalizeConsultation(roomId).catch(err => {
             console.error('[server] Error finalizing live consultation:', err.message);
         });
+    });
+
+    // Handle patient transcript chunk for live keyword extraction
+    socket.on('transcript-chunk', ({ roomId, text }) => {
+        appendTranscriptChunk(roomId, text, io);
     });
     
     // Real-time stock updates

@@ -1,9 +1,7 @@
 import { generateOnce } from './gemini.js';
 
 export const KEYWORD_EXTRACTION_SYSTEM_PROMPT = `You are a keyword extraction assistant for a telemedicine platform (GramSathi). 
-You will be given a partial or full transcript of an ONGOING doctor-patient 
-video consultation (speaker-labeled Doctor/Patient, possibly multilingual, 
-possibly incomplete since the call may still be in progress).
+You will be given a consultation transcript text of a patient.
 
 YOUR ONLY TASK: Extract keywords mentioned by the PATIENT so far. Do nothing 
 else — no symptom analysis, no precautions, no diagnosis, no summary.
@@ -21,7 +19,7 @@ RULES:
 - Use the patient's own words/phrasing — do not normalize or translate.
 - Do not invent or infer keywords not explicitly present in the transcript.
 - Remove duplicates.
-- Output must be a plain JSON object as shown below — nothing else.
+- Return ONLY a plain JSON object with a "keywords" array of strings: {"keywords": ["..."]}
 
 OUTPUT FORMAT (strict):
 {
@@ -29,53 +27,56 @@ OUTPUT FORMAT (strict):
 }`;
 
 /**
- * Parses raw JSON string returned by Gemini safely.
+ * Extracts patient keywords from a consultation transcript using Gemini.
+ * Compatible with both string input `extractPatientKeywords(text)` 
+ * and object input `extractPatientKeywords({ transcript })`.
+ * Returns an array of keywords with a `.keywords` getter property for destructuring.
  */
-function parseJsonOutput(raw) {
-    if (!raw) return null;
-    const cleaned = String(raw).replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-    try {
-        return JSON.parse(cleaned);
-    } catch {
-        const match = cleaned.match(/\{[\s\S]*\}/);
-        if (!match) return null;
-        try { return JSON.parse(match[0]); } catch { return null; }
-    }
-}
-
-/**
- * Extracts patient keywords from an ongoing consultation transcript using Gemini.
- * @param {Object} params
- * @param {string} params.transcript - Ongoing speaker-labeled or patient text transcript
- * @returns {Promise<{ keywords: string[] }>}
- */
-export async function extractPatientKeywords({ transcript }) {
-    if (!transcript || !transcript.trim()) {
-        return { keywords: [] };
+export async function extractPatientKeywords(input) {
+  try {
+    const text = typeof input === 'string' ? input : (input?.transcript || '');
+    if (!text || !text.trim()) {
+      const empty = [];
+      empty.keywords = [];
+      return empty;
     }
 
-    const inputPayload = JSON.stringify({
-        transcript: String(transcript || '')
+    const rawResponse = await generateOnce({
+      systemInstruction: KEYWORD_EXTRACTION_SYSTEM_PROMPT,
+      contents: [{ role: 'user', parts: [{ text: `Patient Transcript: "${text.trim()}"` }] }],
+      temperature: 0.1,
+      responseMimeType: 'application/json'
     });
 
-    try {
-        const rawResponse = await generateOnce({
-            systemInstruction: KEYWORD_EXTRACTION_SYSTEM_PROMPT,
-            contents: [{ role: 'user', parts: [{ text: inputPayload }] }],
-            maxOutputTokens: 600,
-            temperature: 0.1,
-            responseMimeType: 'application/json'
-        });
-
-        const parsed = parseJsonOutput(rawResponse);
-        if (parsed && Array.isArray(parsed.keywords)) {
-            return {
-                keywords: parsed.keywords.map(k => String(k).trim()).filter(Boolean)
-            };
-        }
-    } catch (err) {
-        console.error('[keywordExtractor] Gemini extraction error:', err.message);
+    if (!rawResponse) {
+      const empty = [];
+      empty.keywords = [];
+      return empty;
     }
 
-    return { keywords: [] };
+    let parsed = [];
+    try {
+      const clean = rawResponse.replace(/```json|```/g, '').trim();
+      const jsonObj = JSON.parse(clean);
+      if (Array.isArray(jsonObj)) {
+        parsed = jsonObj;
+      } else if (jsonObj && Array.isArray(jsonObj.keywords)) {
+        parsed = jsonObj.keywords;
+      }
+    } catch {
+      const match = rawResponse.match(/\[[\s\S]*\]/);
+      if (match) {
+        try { parsed = JSON.parse(match[0]); } catch {}
+      }
+    }
+
+    const list = Array.isArray(parsed) ? parsed.map(k => String(k).trim()).filter(Boolean) : [];
+    list.keywords = list;
+    return list;
+  } catch (err) {
+    console.warn('[keywordExtractor] Gemini extraction warning:', err?.message || err);
+    const empty = [];
+    empty.keywords = [];
+    return empty;
+  }
 }

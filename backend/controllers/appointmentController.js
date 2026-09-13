@@ -1,7 +1,4 @@
 import Appointment from '../models/Appointment.js';
-import HealthRecord from '../models/HealthRecord.js';
-import { extractPatientKeywords } from '../assistant/keywordExtractor.js';
-import { finalizeConsultation } from '../services/liveConsultationManager.js';
 import { SLOTS, isValidSlot } from '../config/slots.js';
 import User from '../models/User.js';
 import { buildQueue, findAlternatives } from '../services/queueService.js';
@@ -13,6 +10,7 @@ import {
     notifyAppointmentCancelled,
     notifyQueueStatus
 } from '../services/notifications/notificationService.js';
+import { finalizeConsultation } from '../services/liveConsultationManager.js';
 /**
  * Confirming, rejecting and completing all took the appointment id straight
  * from the URL and wrote to it, so any signed-in account could accept or
@@ -430,9 +428,13 @@ export const completeAppointment = async (req, res) => {
             appointment
         });
 
-        // Finalize live consultation keywords & purge raw memory buffer
-        finalizeConsultation(id, appointment).catch(err => {
-            console.error('[completeAppointment] Error finalizing live consultation keywords:', err.message);
+        // Fire-and-forget keyword finalization. Placed after response is sent,
+        // never awaited, never able to block or fail completeAppointment.
+        setImmediate(() => {
+            const patId = appointment.patientId?._id || appointment.patientId;
+            const docId = appointment.doctorId?._id || appointment.doctorId;
+            finalizeConsultation(id, docId || appointment, patId)
+                .catch(err => console.warn('[completeAppointment] Finalization warning:', err.message));
         });
     } catch (e) {
         res.status(500).json({ message: e.message });
