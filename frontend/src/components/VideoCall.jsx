@@ -54,6 +54,22 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
   const [videoOn, setVideoOn] = useState(true)
   const [counterpart, setCounterpart] = useState(null)
   const [liveKeywords, setLiveKeywords] = useState([])
+  const [lastCaption, setLastCaption] = useState('')
+  const [debugText, setDebugText] = useState('')
+
+  const isDebugMode = new URLSearchParams(window.location.search).get('debugTranscript') === 'true' || import.meta.env.DEV
+
+  const sendDebugTranscript = (e) => {
+    e.preventDefault()
+    if (!debugText.trim()) return
+    const textToSend = debugText.trim()
+    setDebugText('')
+    setLastCaption(textToSend)
+
+    if (socketRef.current) {
+      socketRef.current.emit('transcript-chunk', { roomId, text: textToSend })
+    }
+  }
 
   usePatientKeywordCapture({
     enabled: perspective === 'patient' && connected,
@@ -166,6 +182,10 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
 
         socket.on('keywords-updated', ({ keywords }) => {
           if (Array.isArray(keywords)) setLiveKeywords(keywords)
+        })
+
+        socket.on('transcript-chunk', ({ text }) => {
+          if (text) setLastCaption(text)
         })
 
         socket.on('call-ended', () => { setConnected(false); cleanup(); window.dispatchEvent(new CustomEvent('appointments:changed')); onLeave?.() })
@@ -328,6 +348,14 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
               {counterpartLabel}
             </span>
           )}
+
+          {lastCaption && (
+            <div className="absolute bottom-16 left-3 right-3 bg-black/80 text-white px-3 py-2 rounded-lg text-small backdrop-blur-xs transition-all shadow-md z-10 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              <span className="font-semibold text-emerald-300 text-caption uppercase">Speech:</span>
+              <span className="truncate italic text-white/95">"{lastCaption}"</span>
+            </div>
+          )}
         </div>
 
         {perspective === 'doctor' && liveKeywords.length > 0 && (
@@ -355,7 +383,7 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               {audioOn
                 ? <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3zM19 11a7 7 0 01-14 0M12 18v3" />
-                : <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18M9 9v3a3 3 0 004.5 2.6M15 9.3V6a3 3 0 00-5.9-.7M19 11a7 7 0 01-1.2 3.9M5 11a7 7 0 0010.3 6.2M12 18v3" />}
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18M9 9v3a3 3 0 004.5 2.6M15 9.3V6a3 3 0 00-5.9-.7M19 11a7 7 0 0010.3 6.2M12 18v3" />}
             </svg>
           </IconButton>
 
@@ -376,6 +404,25 @@ export default function VideoCall({ roomId, perspective = 'patient', onLeave }) 
             {t('consultation.endCall')}
           </Button>
         </div>
+
+        {/* Test Speech Input (Available when ?debugTranscript=true or dev mode) */}
+        {isDebugMode && (
+          <form onSubmit={sendDebugTranscript} className="p-3 bg-amber-50/80 border-t border-amber-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <span className="text-caption font-semibold text-amber-900 shrink-0 flex items-center gap-1">
+              🧪 Test Speech Input:
+            </span>
+            <input
+              type="text"
+              value={debugText}
+              onChange={(e) => setDebugText(e.target.value)}
+              placeholder="Type patient speech to test keyword pipeline (e.g. 'I have dry cough and fever')..."
+              className="flex-1 px-3 py-1.5 text-small bg-white border border-amber-300 rounded-control focus:outline-none focus:ring-1 focus:ring-amber-500 text-ink"
+            />
+            <Button type="submit" size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-medium px-4">
+              Send Chunk
+            </Button>
+          </form>
+        )}
 
         {/* Live Patient Keywords Panel for Doctor (Visible only during doctor consultation) */}
         {perspective === 'doctor' && (

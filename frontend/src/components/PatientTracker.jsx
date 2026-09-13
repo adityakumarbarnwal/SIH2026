@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import api, { friendlyError } from '../services/api'
 import { useAuth } from '../context/AuthContext'
@@ -42,7 +43,18 @@ export default function PatientTracker() {
     }
   }, [userId])
 
+  const location = useLocation()
+
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (location.state?.appointmentId && appointments.length > 0) {
+      const match = appointments.find(a => a._id === location.state.appointmentId)
+      if (match?.patientId) {
+        selectPatient(match.patientId)
+      }
+    }
+  }, [location.state, appointments])
 
   const patients = useMemo(() => {
     const seen = new Map()
